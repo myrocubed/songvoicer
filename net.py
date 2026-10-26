@@ -7,6 +7,8 @@ import random
 import socket
 import struct
 import ssl
+import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -253,13 +255,29 @@ class Client:
 
 # ---------------- website client (netlify/functions/api.mjs) ----------------
 
-try:
-    # Python on macOS (and inside the packaged app) has no system certificate list, so HTTPS fails with
-    # CERTIFICATE_VERIFY_FAILED unless we bring certifi's.
-    import certifi
-    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
-except ImportError:
-    SSL_CONTEXT = ssl.create_default_context()
+def make_ssl_context():
+    """Python on macOS (and inside the packaged app) has no certificate list of its own, so HTTPS fails with
+    CERTIFICATE_VERIFY_FAILED. Use certifi's list if it's installed, and on a Mac also macOS's own roots."""
+    ctx = ssl.create_default_context()
+    try:
+        import certifi
+        ctx.load_verify_locations(cafile=certifi.where())
+    except (ImportError, OSError):
+        pass
+    if sys.platform == "darwin":
+        for keychain in ("/System/Library/Keychains/SystemRootCertificates.keychain",
+                         "/Library/Keychains/System.keychain"):
+            try:
+                pem = subprocess.run(["/usr/bin/security", "find-certificate", "-a", "-p", keychain],
+                                     capture_output=True, text=True, timeout=10).stdout
+                if pem:
+                    ctx.load_verify_locations(cadata=pem)
+            except (OSError, ssl.SSLError, subprocess.SubprocessError):
+                pass
+    return ctx
+
+
+SSL_CONTEXT = make_ssl_context()
 
 
 def is_web_address(address):

@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import traceback
 import zlib
@@ -80,6 +81,7 @@ from theme import FONT, H, W, Button
 
 MAPS = os.path.join(DATA, "maps")
 PAD = 0.25           # seconds of your recording kept around each of your lines
+METER_DB = 50        # the Settings level meter shows -50 dB .. 0 dB
 FADE = 0.03          # crossfade length in seconds
 ENV_RATE = 50        # waveform points per second
 WAVE_SECONDS = 6.0   # time span visible in the waveform
@@ -288,6 +290,14 @@ class Song:
         return orig, mic
 
 
+def soft_clip(x, knee=0.85):
+    """Leave everything below `knee` untouched and squeeze louder peaks smoothly under 1.0 (no distortion)."""
+    y = x.copy()
+    over = np.abs(x) > knee
+    y[over] = np.sign(x[over]) * (knee + (1 - knee) * np.tanh((np.abs(x[over]) - knee) / (1 - knee)))
+    return y
+
+
 def encode_voice(voice, window):
     """Pack the parts of a voice track inside `window` as (segments, zlib'd int16 bytes) for upload."""
     edges = np.flatnonzero(np.diff(np.concatenate(([0], (window > 0).astype(np.int8), [0]))))
@@ -327,6 +337,9 @@ class App(EditorMixin):
         self.song = None
         self.reload_songs()
         self.guide_vol = tk.DoubleVar(value=0.8)
+        self.mic_gain = tk.DoubleVar(value=1.5)  # your voice in the cover, relative to the original singer
+        self.capture = None      # list of mic blocks while recording a test in Settings
+        self.test_clip = None
         self.offset_ms = tk.IntVar(value=0)
         self.inputs = [(i, d["name"]) for i, d in enumerate(sd.query_devices())
                        if d["max_input_channels"] > 0 and d["hostapi"] == sd.default.hostapi]
@@ -359,6 +372,7 @@ class App(EditorMixin):
     # ---------- screen plumbing ----------
     def screen(self, crumb, back=None):
         self.stop_audio()
+        self.capture = None
         self.view = None
         for seq in EDITOR_EVENTS:
             self.c.unbind(seq)
@@ -421,8 +435,9 @@ class App(EditorMixin):
     def main_menu(self):
         self.screen("Main Menu")
         for i, (label, cmd) in enumerate([("Play", self.song_select), ("Host", self.host_screen),
-                                          ("Create", self.create_screen), ("Quit", self.quit)]):
-            Button(self.c, 18, 82 + i * 92, 290, 86, label, cmd, size=24)
+                                          ("Create", self.create_screen), ("Settings", self.settings_screen),
+                                          ("Quit", self.quit)]):
+            Button(self.c, 18, 82 + i * 107, 290, 99, label, cmd, size=24)
         self.panel(326, 82, 808, 534)
         self.text(730, 150, "Song Voicer", 42, bold=True)
         self.text(730, 205, "Still in early Beta. Inspired by Choicer Voicer :)", 15, "#bfe6ee")
@@ -450,6 +465,107 @@ class App(EditorMixin):
             up, down = np.interp(sx, xs, tops) * scale, np.interp(sx, xs, bottoms) * scale
             bx = x + k * bar_w
             self.c.create_rectangle(bx, mid - max(1, up), bx + bar_w - 1, mid + max(1, down), fill="#ffffff", width=0)
+
+    # ---------- settings ----------
+    def settings_screen(self):
+        self.screen("Main Menu > Settings", back=lambda: (self.save_settings(), self.main_menu()))
+        self.panel(18, 82, 1116, 534)
+        self.text(52, 124, "Microphone", 26, bold=True, anchor="w")
+        names = [name for _, name in self.inputs]
+        if not names:
+            self.text(52, 180, "No microphone found. Plug one in and reopen Settings.", 15, "#ffb35c", anchor="w")
+            return
+        mic_var = tk.StringVar(value=next((nm for i, nm in self.inputs if i == self.mic), names[0]))
+        box = self.widget(ttk.Combobox(self.c, textvariable=mic_var, values=names, state="readonly", width=70),
+                          52, 176, anchor="w")
+        box.bind("<<ComboboxSelected>>", lambda e: self.set_mic(names.index(mic_var.get())))
+
+        # level meter, in dB so quiet voices still move it
+        self.text(52, 226, "Input level", 13, "#ccc", anchor="w")
+        x0, y0, x1, y1 = 52, 244, 1100, 278
+        self.c.create_rectangle(x0, y0, x1, y1, fill="#1b1b1b", outline="#666")
+        for db, label in ((-40, "-40 dB"), (-20, "-20 dB"), (-6, "-6"), (0, "0")):
+            x = x0 + (x1 - x0) * (db + METER_DB) / METER_DB
+            self.c.create_line(x, y1, x, y1 + 6, fill="#888")
+            self.text(x, y1 + 16, label, 9, "#888")
+        self.meter_box = (x0 + 1, y0 + 1, x1 - 1, y1 - 1)
+        self.meter = self.c.create_rectangle(x0 + 1, y0 + 1, x0 + 1, y1 - 1, fill="#3fbf6f", width=0)
+        self.peak_line = self.c.create_line(x0, y0 + 1, x0, y1 - 1, fill="white", width=2)
+        self.level_status = self.text(52, 318, "", 13, "#bbb", anchor="w")
+        self.peak_frac, self.peak_time, self.level_hist = 0.0, 0.0, []
+
+        self.text(52, 372, "Voice volume in the cover", 13, "#ccc", anchor="w")
+        value = self.text(640, 372, f"{round(self.mic_gain.get() * 100)}%", 14, bold=True, anchor="w")
+        scale = self.widget(ttk.Scale(self.c, from_=0.5, to=3.0, variable=self.mic_gain, length=360,
+                                      command=lambda v: self.c.itemconfig(value, text=f"{round(float(v) * 100)}%")),
+                            262, 372, anchor="w")
+        scale.bind("<ButtonRelease-1>", lambda e: self.save_settings())
+        self.text(52, 400, "Your singing is first matched to the original singer's loudness, then set to this "
+                           "volume. 100% = as loud as the original.", 11, "#999", anchor="w")
+
+        self.text(52, 452, "Test", 13, "#ccc", anchor="w")
+        self.rec_btn = Button(self.c, 52, 470, 220, 54, "●  Record 3 s", self.record_test, style="small", size=15)
+        self.play_test_btn = Button(self.c, 284, 470, 200, 54, "▶  Play test", self.play_test, style="small",
+                                    size=15)
+        self.play_test_btn.set_enabled(self.test_clip is not None)
+        self.test_status = self.text(504, 497, "Record yourself singing, then play it back at the volume above.",
+                                     12, "#bbb", anchor="w")
+        self.text(52, 560, "Use headphones, like during a song, or the playback will feed back into the mic.",
+                  11, "#999", anchor="w")
+        self.start_meter()
+        self.loop(self.settings_tick)
+
+    def settings_tick(self):
+        now = time.time()
+        x0, y0, x1, y1 = self.meter_box
+        level = min(1.0, self.level)
+        frac = max(0.0, (20 * np.log10(max(level, 1e-6)) + METER_DB) / METER_DB)
+        color = "#e04848" if level >= 0.98 else ("#ffd34d" if level >= 0.5 else "#3fbf6f")
+        self.c.coords(self.meter, x0, y0, x0 + (x1 - x0) * frac, y1)
+        self.c.itemconfig(self.meter, fill=color)
+        if frac >= self.peak_frac or now - self.peak_time > 1.5:
+            self.peak_frac, self.peak_time = frac, now
+        px = x0 + (x1 - x0) * self.peak_frac
+        self.c.coords(self.peak_line, px, y0, px, y1)
+        self.level_hist = [(t, v) for t, v in self.level_hist if now - t < 3] + [(now, level)]
+        loudest = max(v for _, v in self.level_hist)
+        self.level *= 0.85
+
+        if self.capture is not None:
+            left = self.rec_end - now
+            if left > 0:
+                self.c.itemconfig(self.test_status, text=f"Recording… {left:.1f} s", fill="#ff6b6b")
+            else:
+                data = np.concatenate(self.capture) if self.capture else np.zeros(1, np.float32)
+                self.capture = None
+                self.test_clip = (data, int(self.stream.samplerate) if self.stream else 44100)
+                self.rec_btn.set_enabled(True)
+                self.play_test_btn.set_enabled(True)
+                self.c.itemconfig(self.test_status, text="Recorded. Press Play test to hear it.", fill="#7fe08f")
+
+        if loudest >= 0.98:
+            msg, fill = "Too loud: it's clipping. Move back a little or lower the mic's input level.", "#ff6b6b"
+        elif loudest < 0.02:
+            msg, fill = "Too quiet: sing or speak, or pick another microphone above.", "#ffb35c"
+        else:
+            msg, fill = "Sounds good.", "#7fe08f"
+        self.c.itemconfig(self.level_status, text=msg, fill=fill)
+
+    def record_test(self):
+        if not self.stream:
+            return
+        sd.stop()
+        self.capture = []
+        self.rec_end = time.time() + 3
+        self.rec_btn.set_enabled(False)
+        self.play_test_btn.set_enabled(False)
+
+    def play_test(self):
+        data, rate = self.test_clip
+        # Same treatment as in a cover: bring it to a typical singer level, then apply the volume setting.
+        rms = float(np.sqrt(np.mean(data ** 2)))
+        out = data * (0.1 / rms if rms > 1e-5 else 1.0) * self.mic_gain.get()
+        sd.play(np.clip(out, -1, 1), rate)
 
     # ---------- multiplayer: host / join ----------
     def entry(self, var, x, y, width=28):
@@ -517,11 +633,16 @@ class App(EditorMixin):
             return
         self.player_name.set(saved.get("name") or self.player_name.get())
         self.address.set(saved.get("server", ""))
+        self.mic_gain.set(saved.get("mic_gain", self.mic_gain.get()))
+        # Device numbers change when devices are plugged in or out, so the mic is remembered by name.
+        self.mic = next((i for i, name in self.inputs if name == saved.get("mic")), self.mic)
 
     def save_settings(self):
+        mic = next((name for i, name in self.inputs if i == self.mic), None)
         try:
             with open(SETTINGS, "w", encoding="utf-8") as f:
-                json.dump({"name": self.player_name.get().strip(), "server": self.address.get().strip()}, f)
+                json.dump({"name": self.player_name.get().strip(), "server": self.address.get().strip(),
+                           "mic": mic, "mic_gain": round(self.mic_gain.get(), 2)}, f)
         except OSError:
             pass
 
@@ -815,18 +936,27 @@ class App(EditorMixin):
 
     def set_mic(self, idx):
         self.mic = self.inputs[idx][0]
+        self.save_settings()
         self.start_meter()
 
     def start_meter(self):
+        """Listen to the mic for the level meter; while self.capture is a list, also keep what it hears."""
         self.stop_audio()
         if self.mic is None:
             return
 
         def cb(indata, frames, time, status):
             self.level = float(np.abs(indata).max())
+            if self.capture is not None:
+                self.capture.append(indata[:, 0].copy())
 
-        self.stream = sd.InputStream(device=self.mic, channels=1, samplerate=self.song.sr, callback=cb)
-        self.stream.start()
+        rate = self.song.sr if self.song and self.song.sr else int(sd.query_devices(self.mic)["default_samplerate"])
+        try:
+            self.stream = sd.InputStream(device=self.mic, channels=1, samplerate=rate, callback=cb)
+            self.stream.start()
+        except sd.PortAudioError as e:
+            self.stream = None
+            messagebox.showwarning("Song Voicer", f"Couldn't open that microphone:\n{e}")
 
     def meter_tick(self):
         x0, y0, x1, y1 = self.meter_box
@@ -1032,7 +1162,7 @@ class App(EditorMixin):
         mine = np.sqrt(np.mean(voice[keep] ** 2)) if keep.any() else 0
         if mine > 1e-5:
             voice *= min(30.0, np.sqrt(np.mean(s.voc.mean(axis=1)[keep] ** 2)) / mine)
-        return voice
+        return voice * self.mic_gain.get()
 
     def build_cover(self):
         """Mix the instrumental, the original vocals of anyone not sung, your voice and everyone else's."""
@@ -1045,7 +1175,8 @@ class App(EditorMixin):
         mix = s.inst + s.voc * gain[:, None]
         for _, v in voices:
             mix += v[:, None]
-        self.cover = (mix / max(1.0, float(np.abs(mix).max()))).astype(np.float32)
+        # Only the loudest peaks get rounded off; the song never turns down because a voice is loud.
+        self.cover = soft_clip(mix).astype(np.float32)
 
     def upload_voice(self):
         segments, data = encode_voice(self.voice, self.mic_win)
