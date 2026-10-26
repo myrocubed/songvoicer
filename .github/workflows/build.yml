@@ -1,0 +1,47 @@
+# Builds Song Voicer for Mac (Apple Silicon + Intel), Windows and Linux on GitHub's machines.
+# Run it from the repo's Actions tab ("Run workflow"); download the zips from the finished run.
+name: Build apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15        # Apple Silicon Macs (M1 and newer)
+            name: mac-apple-silicon
+          - os: macos-15-intel  # older Intel Macs
+            name: mac-intel
+          - os: windows-latest
+            name: windows
+          - os: ubuntu-22.04    # older glibc, so the build runs on most Linux distros
+            name: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PortAudio (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2
+      - run: python -m pip install -r requirements.txt pyinstaller
+      - run: pyinstaller song_voicer.spec --noconfirm
+      - name: Zip the Mac app
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent "dist/Song Voicer.app" "Song-Voicer-${{ matrix.name }}.zip"
+      - name: Zip the Windows app
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path "dist/Song Voicer" -DestinationPath "Song-Voicer-${{ matrix.name }}.zip"
+      - name: Pack the Linux app
+        if: runner.os == 'Linux'
+        run: tar -czf "Song-Voicer-${{ matrix.name }}.tar.gz" -C dist "Song Voicer"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Song-Voicer-${{ matrix.name }}
+          path: Song-Voicer-${{ matrix.name }}.*
