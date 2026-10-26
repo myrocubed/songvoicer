@@ -131,12 +131,13 @@ def brackets(canvas, x0, y0, x1, y1, tag, color="#e22828", size=14, width=3):
 
 class Button:
 
-    def __init__(self, canvas, x, y, w, h, text, command, style="big", size=20):
+    def __init__(self, canvas, x, y, w, h, text, command, style="big", size=20, tags=()):
         self.c, self.command, self.w, self.h, self.style = canvas, command, w, h, style
         self.enabled, self.selected, self.hover, self.down = True, False, False, False
         self.tag = f"btn{id(self)}"
-        self.img = canvas.create_image(x, y, anchor="nw", tags=self.tag)
-        self.txt = canvas.create_text(x + w / 2, y + h / 2, text=text, font=(FONT, size), fill=TEXT, tags=self.tag)
+        all_tags = (self.tag,) + tuple(tags)
+        self.img = canvas.create_image(x, y, anchor="nw", tags=all_tags)
+        self.txt = canvas.create_text(x + w / 2, y + h / 2, text=text, font=(FONT, size), fill=TEXT, tags=all_tags)
         canvas.tag_bind(self.tag, "<Enter>", lambda e: self._set(hover=True))
         canvas.tag_bind(self.tag, "<Leave>", lambda e: self._set(hover=False, down=False))
         canvas.tag_bind(self.tag, "<ButtonPress-1>", lambda e: self._set(down=True))

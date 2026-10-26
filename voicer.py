@@ -1,4 +1,4 @@
-"""Song Voicer: pick a character, sing your parts, hear the cover.
+"""Song Voicer: STILL IN BETA
 
 Run:   python voicer.py
 Needs: pip install numpy sounddevice soundfile pillow
@@ -23,18 +23,19 @@ from tkinter import filedialog, messagebox, ttk
 def data_dir():
     """Where maps, lyrics and error.log live.
 
-    From source that's this folder. A packaged app (PyInstaller) can't write inside itself, so it uses
-    a per-user folder and copies the bundled maps there on first run.
+    From source that's this folder. A packaged app keeps them somewhere easy to find, so people can drop
+    song folders in: next to the .exe / Linux executable, or Documents/Song Voicer on a Mac (an .app can't
+    be written into). The songs bundled with the app are copied there on first run.
     """
     if not getattr(sys, "frozen", False):
         return os.path.dirname(os.path.abspath(__file__))
     if sys.platform == "darwin":
-        base = os.path.expanduser("~/Library/Application Support")
-    elif sys.platform == "win32":
-        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+        path = os.path.expanduser("~/Documents/Song Voicer")
     else:
-        base = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
-    path = os.path.join(base, "Song Voicer")
+        path = os.path.dirname(sys.executable)
+        if not os.access(path, os.W_OK):  # e.g. installed under Program Files
+            base = os.environ.get("APPDATA") or os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~")
+            path = os.path.join(base, "Song Voicer")
     bundled = os.path.join(sys._MEIPASS, "maps")
     if not os.path.isdir(os.path.join(path, "maps")) and os.path.isdir(bundled):
         shutil.copytree(bundled, os.path.join(path, "maps"))
@@ -72,6 +73,7 @@ from PIL import Image, ImageDraw, ImageTk
 
 import net
 import theme
+from editor import EDITOR_EVENTS, EditorMixin
 from fill_lyrics import parse_lyrics
 from theme import FONT, H, W, Button
 
@@ -219,6 +221,9 @@ class Song:
         return {cid for cid, c in self.chars.items()
                 if cid in words or any(len(w) > 2 and w in words for w in re.findall(r"[a-z0-9']+", c["name"].lower()))}
 
+    def playable(self):
+        return bool(self.characters and self.lines) and not self.missing_audio()
+
     def missing_audio(self):
         return [self.data[k] for k in ("instrumental", "guide")
                 if not os.path.exists(os.path.join(self.folder, self.data[k]))]
@@ -302,7 +307,7 @@ def decode_voice(segments, data, n):
     return voice
 
 
-class App:
+class App(EditorMixin):
     def __init__(self, root):
         self.root = root
         root.title("Song Voicer")
@@ -317,10 +322,9 @@ class App:
         self.finished = False
         self.rec = self.cover = None
         self.latency = 0.0
-        self.songs = [Song(d) for d in sorted(glob.glob(os.path.join(MAPS, "*")))
-                      if glob.glob(os.path.join(d, "*.map.json"))]
-        self.song = self.songs[0] if self.songs else None
-        self.me = self.song.characters[0]["id"] if self.song else None
+        self.maps_dir = MAPS
+        self.song = None
+        self.reload_songs()
         self.guide_vol = tk.DoubleVar(value=0.8)
         self.offset_ms = tk.IntVar(value=0)
         self.inputs = [(i, d["name"]) for i, d in enumerate(sd.query_devices())
@@ -341,10 +345,22 @@ class App:
         self.pump()
         self.main_menu()
 
+    def reload_songs(self):
+        """Read every map from disk again (after the editor saved or made one)."""
+        key = self.song.key if self.song else None
+        self.songs = [Song(d) for d in sorted(glob.glob(os.path.join(MAPS, "*")))
+                      if glob.glob(os.path.join(d, "*.map.json"))]
+        self.song = next((s for s in self.songs if s.key == key), self.songs[0] if self.songs else None)
+        self.me = self.song.characters[0]["id"] if self.song and self.song.characters else None
+
     # ---------- screen plumbing ----------
     def screen(self, crumb, back=None):
         self.stop_audio()
         self.view = None
+        for seq in EDITOR_EVENTS:
+            self.c.unbind(seq)
+        for key in ("<space>", "<Delete>", "<BackSpace>"):
+            self.root.unbind(key)
         self.gen += 1
         self.c.delete("all")
         for w in self.widgets:
@@ -406,7 +422,7 @@ class App:
             Button(self.c, 18, 82 + i * 92, 290, 86, label, cmd, size=24)
         self.panel(326, 82, 808, 534)
         self.text(730, 150, "Song Voicer", 42, bold=True)
-        self.text(730, 205, "Pick a character. Sing your part. Hear the cover.", 15, "#bfe6ee")
+        self.text(730, 205, "Still in early Beta. Inspired by Choicer Voicer :)", 15, "#bfe6ee")
         self.menu_wave(380, 240, 700, 330)
         count = len(self.songs)
         self.text(W - 20, H - 26, f"{count} song{'s' * (count != 1)} installed", 12, "#ddd", anchor="e")
@@ -439,7 +455,7 @@ class App:
     def host_screen(self):
         self.leave_room()
         self.screen("Main Menu > Host", back=self.main_menu)
-        playable = [s for s in self.songs if not s.missing_audio()]
+        playable = [s for s in self.songs if s.playable()]
 
         self.panel(18, 82, 549, 534)
         self.text(48, 122, "Host a room", 26, bold=True, anchor="w")
@@ -471,7 +487,7 @@ class App:
 
     def connect(self, address):
         self.leave_room()
-        songs = [s.key for s in self.songs if not s.missing_audio()]
+        songs = [s.key for s in self.songs if s.playable()]
         try:
             self.net = net.Client(address, self.player_name.get().strip() or "Player", songs)
         except (OSError, ValueError) as e:
@@ -638,19 +654,7 @@ class App:
         self.start_meter()
         self.loop(self.meter_tick)
 
-    # ---------- create (not built yet) ----------
-    def create_screen(self):
-        self.screen("Main Menu > Create", back=self.main_menu)
-        self.panel(18, 82, 1116, 534)
-        self.text(60, 130, "Create a map", 28, bold=True, anchor="w")
-        info = ("The map editor isn't built yet. For now, a map is a folder in maps/ containing:\n\n"
-                "•  <name>.map.json   – characters, colors, sprites and the timing of every line\n"
-                "•  instrumental + vocals audio   – the vocals file is the guide and gets muted for you\n"
-                "•  sprites/   – one picture per character\n"
-                "•  any .txt file   – lyrics with [CHARACTER] headers (or use Paste lyrics on the song screen)")
-        self.text(60, 175, info, 15, "#ddd", anchor="nw", width=1000)
-        Button(self.c, 60, 400, 260, 60, "Open maps folder", self.open_maps, style="small", size=17)
-
+    # ---------- create: see editor.py ----------
     def open_maps(self):
         if sys.platform == "win32":
             os.startfile(MAPS)
@@ -690,11 +694,14 @@ class App:
         if missing:
             self.text(506, 540, f"Missing audio in maps/{os.path.basename(s.folder)}/:  {',  '.join(missing)}",
                       12, "#ff6b6b", anchor="w")
-            nxt.set_enabled(False)
+        elif not s.playable():
+            self.text(506, 540, "This map has no characters or lines yet. Finish it in Create.", 12, "#ff6b6b",
+                      anchor="w")
+        nxt.set_enabled(s.playable())
 
     def pick_song(self, song):
         self.song = song
-        self.me = song.characters[0]["id"]
+        self.me = song.characters[0]["id"] if song.characters else None
         self.song_select()
 
     def lyrics_box(self, x, y, width, redraw):
