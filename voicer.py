@@ -45,6 +45,7 @@ def data_dir():
 
 DATA = data_dir()
 ERROR_LOG = os.path.join(DATA, "error.log")
+SETTINGS = os.path.join(DATA, "settings.json")
 
 
 def report_error(exc_type, exc, tb):
@@ -341,6 +342,8 @@ class App(EditorMixin):
         self.address = tk.StringVar()
         self.code = tk.StringVar()
         self.port = tk.StringVar(value=str(net.PORT))
+        self.connected_to = ""
+        self.load_settings()
         root.protocol("WM_DELETE_WINDOW", self.quit)
         self.pump()
         self.main_menu()
@@ -459,47 +462,77 @@ class App(EditorMixin):
 
         self.panel(18, 82, 549, 534)
         self.text(48, 122, "Host a room", 26, bold=True, anchor="w")
-        self.text(48, 176, "Your name", 13, "#ccc", anchor="w")
-        self.entry(self.player_name, 170, 176)
-        self.text(48, 222, "Song", 13, "#ccc", anchor="w")
+        self.text(48, 170, "Your name", 13, "#ccc", anchor="w")
+        self.entry(self.player_name, 170, 170)
+        self.text(48, 214, "Song", 13, "#ccc", anchor="w")
         song_var = tk.StringVar(value=playable[0].title if playable else "")
         self.widget(ttk.Combobox(self.c, textvariable=song_var, values=[s.title for s in playable],
-                                 state="readonly", width=30), 170, 222, anchor="w")
-        self.text(48, 268, "Port", 13, "#ccc", anchor="w")
-        self.entry(self.port, 170, 268, width=8)
-        Button(self.c, 48, 310, 300, 60, "Start room", lambda: self.host_room(song_var.get()), style="small", size=17)
-        self.text(48, 400, f"Friends join with:  {net.local_ip()}:{self.port.get()}  (same Wi-Fi / network)\n\n"
-                           f"Over the internet: forward TCP port {self.port.get()} on your router and give "
-                           "them your public IP, or use playit.gg or Tailscale.\n\n"
-                           "Live voice goes through your Discord call.", 12, "#bbb", anchor="nw", width=480)
+                                 state="readonly", width=30), 170, 214, anchor="w")
+        self.text(48, 258, "Server", 13, "#ccc", anchor="w")
+        self.entry(self.address, 170, 258)
+        self.text(48, 302, "Port", 13, "#ccc", anchor="w")
+        self.entry(self.port, 170, 302, width=8)
+        self.text(260, 302, "only used without a server", 11, "#888", anchor="w")
+        Button(self.c, 48, 334, 300, 60, "Start room", lambda: self.host_room(song_var.get()), style="small", size=17)
+        self.text(48, 414, "Server: your Netlify site (like songvoicer.netlify.app). Everyone uses the same "
+                           "address and nobody has to open ports.\n\n"
+                           f"Leave it empty to host on this PC instead: friends on your Wi-Fi join with "
+                           f"{net.local_ip()}:{self.port.get()}.", 12, "#bbb", anchor="nw", width=480)
 
         self.panel(585, 82, 549, 534)
         self.text(615, 122, "Join a room", 26, bold=True, anchor="w")
-        self.text(615, 176, "Your name", 13, "#ccc", anchor="w")
-        self.entry(self.player_name, 760, 176)
-        self.text(615, 222, "Server address", 13, "#ccc", anchor="w")
-        self.entry(self.address, 760, 222)
-        self.text(615, 268, "Room code", 13, "#ccc", anchor="w")
-        self.entry(self.code, 760, 268, width=8)
-        Button(self.c, 615, 310, 300, 60, "Join", self.join_room, style="small", size=17)
-        self.text(615, 400, "Ask the host for their address (like 192.168.1.5:7777) and the 4-letter room code. "
-                            "You need the same song in your maps folder.", 12, "#bbb", anchor="nw", width=480)
+        self.text(615, 170, "Your name", 13, "#ccc", anchor="w")
+        self.entry(self.player_name, 760, 170)
+        self.text(615, 214, "Server address", 13, "#ccc", anchor="w")
+        self.entry(self.address, 760, 214)
+        self.text(615, 258, "Room code", 13, "#ccc", anchor="w")
+        self.entry(self.code, 760, 258, width=8)
+        Button(self.c, 615, 334, 300, 60, "Join", self.join_room, style="small", size=17)
+        self.text(615, 414, "Ask the host for the server address (their Netlify site, or an address like "
+                            "192.168.1.5:7777) and the 4-letter room code. You need the same song in your maps "
+                            "folder.", 12, "#bbb", anchor="nw", width=480)
 
     def connect(self, address):
         self.leave_room()
         songs = [s.key for s in self.songs if s.playable()]
+        self.root.config(cursor="watch")
+        self.root.update()
         try:
-            self.net = net.Client(address, self.player_name.get().strip() or "Player", songs)
+            self.net = net.make_client(address, self.player_name.get().strip() or "Player", songs)
         except (OSError, ValueError) as e:
             messagebox.showerror("Song Voicer", f"Couldn't connect to {address}:\n{e}")
             return False
+        finally:
+            self.root.config(cursor="")
+        self.connected_to = address.strip()
+        self.save_settings()
         self.view = "joining"
         return True
+
+    def load_settings(self):
+        try:
+            with open(SETTINGS, encoding="utf-8") as f:
+                saved = json.load(f)
+        except (OSError, ValueError):
+            return
+        self.player_name.set(saved.get("name") or self.player_name.get())
+        self.address.set(saved.get("server", ""))
+
+    def save_settings(self):
+        try:
+            with open(SETTINGS, "w", encoding="utf-8") as f:
+                json.dump({"name": self.player_name.get().strip(), "server": self.address.get().strip()}, f)
+        except OSError:
+            pass
 
     def host_room(self, title):
         song = next((s for s in self.songs if s.title == title), None)
         if not song:
             return messagebox.showinfo("Song Voicer", "Pick a song first.")
+        if self.address.get().strip():  # rooms live on the shared server (e.g. the Netlify site)
+            if self.connect(self.address.get()):
+                self.net.send({"type": "create", "song": song.key})
+            return
         try:
             port = int(self.port.get())
         except ValueError:
@@ -593,7 +626,9 @@ class App(EditorMixin):
         self.text(198, 112, "ROOM CODE", 12, "#aaa")
         self.text(198, 165, r["code"], 52, bold=True)
         self.text(198, 226, s.title, 15, "#bfe6ee", bold=True)
-        self.text(198, 252, f"{len(r['players'])} player{'s' * (len(r['players']) != 1)}", 12, "#aaa")
+        self.text(198, 250, f"{len(r['players'])} player{'s' * (len(r['players']) != 1)}", 12, "#aaa")
+        if net.is_web_address(self.connected_to):
+            self.text(198, 270, self.connected_to, 10, "#888")
 
         self.panel(18, 294, 360, 322)
         self.text(44, 322, "Players", 15, bold=True, anchor="w")

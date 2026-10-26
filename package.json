@@ -1,0 +1,9 @@
+{
+  "name": "songvoicer-server",
+  "private": true,
+  "type": "module",
+  "description": "Song Voicer room server for Netlify (see netlify/functions/api.mjs)",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}

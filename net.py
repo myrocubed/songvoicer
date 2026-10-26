@@ -8,6 +8,9 @@ import socket
 import struct
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 PORT = 7777
 START_DELAY = 3.0  # seconds between the host pressing Start and the song starting
@@ -245,6 +248,166 @@ class Client:
         except OSError:
             pass
         self.sock.close()
+
+
+# ---------------- website client (netlify/functions/api.mjs) ----------------
+
+def is_web_address(address):
+    """https://… or a site name with a path/dot but no :port means the Netlify server, not a TCP host."""
+    a = address.strip()
+    plain_ip = all(part.isdigit() for part in a.split("."))
+    return a.startswith(("http://", "https://")) or ("." in a and ":" not in a and not plain_ip)
+
+
+class WebClient:
+    """Same interface as Client (inbox, send, id, rtt, close) for the Netlify server.
+
+    Actions go out as POSTs on a sender thread; a poller thread fetches the room about twice a second and
+    turns changes into the same messages the TCP server sends: room, start, voice, error, disconnected.
+    """
+    POLL = 1.5  # each poll is a Netlify function call, which the free plan limits; Start gives 4 s notice
+    CHUNK = 2_000_000  # Netlify function bodies are limited to about 6 MB
+
+    def __init__(self, address, name, songs):
+        base = address.strip().rstrip("/")
+        self.base = base if base.startswith(("http://", "https://")) else "https://" + base
+        self.inbox = queue.Queue()
+        self.outbox = queue.Queue()
+        self.poke = threading.Event()
+        self.rtt = 0.0          # start delays come pre-corrected from the server clock
+        self.offset = 0.0       # server clock minus ours, in seconds
+        self.closed = False
+        self.id = self.token = None
+        self.round = 0
+        self.started_round = None
+        self.last_room = None
+        self.seen_voices = set()
+        r = self._post("hello", {"name": name, "songs": songs})
+        if "id" not in r:
+            raise ValueError(r.get("error") or "that address isn't a Song Voicer server")
+        self.id, self.token = r["id"], r["token"]
+        self.inbox.put(({"type": "welcome", "id": self.id}, b""))
+        threading.Thread(target=self._sender, daemon=True).start()
+        threading.Thread(target=self._poller, daemon=True).start()
+
+    def _request(self, path, body=None, headers=None, raw=False, timeout=60):
+        req = urllib.request.Request(f"{self.base}/api/{path}", data=body, headers=headers or {},
+                                     method="POST" if body is not None else "GET")
+        req.add_header("User-Agent", "SongVoicer")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = r.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 410:
+                raise
+            data = e.read()
+        if raw:
+            return data
+        try:
+            return json.loads(data)
+        except ValueError:
+            raise ValueError("that address isn't a Song Voicer server (no /api found)")
+
+    def _auth(self, **extra):
+        return urllib.parse.urlencode(dict(extra, id=self.id, token=self.token))
+
+    def _post(self, action, payload, timeout=60):
+        body = json.dumps(dict(payload, id=self.id, token=self.token)).encode()
+        return self._request(action, body, {"Content-Type": "application/json"}, timeout=timeout)
+
+    def send(self, head, data=b""):
+        if head.get("type") not in ("hello", "ping"):
+            self.outbox.put((head, data))
+
+    def _sender(self):
+        while not self.closed:
+            head, data = self.outbox.get()
+            if head is None:
+                return
+            try:
+                if head["type"] == "upload":
+                    rnd = self.round
+                    chunks = [data[i:i + self.CHUNK] for i in range(0, len(data), self.CHUNK)] or [b""]
+                    for n, chunk in enumerate(chunks):
+                        self._request("upload?" + self._auth(round=rnd, chunk=n), chunk,
+                                      {"Content-Type": "application/octet-stream"})
+                    r = self._post("upload_done", {"round": rnd, "segments": head.get("segments", []),
+                                                   "chunks": len(chunks)})
+                else:
+                    r = self._post(head["type"], {k: v for k, v in head.items() if k != "type"})
+            except urllib.error.HTTPError:
+                self._disconnect()
+                return
+            except (OSError, ValueError) as e:
+                if not self.closed:
+                    self.inbox.put(({"type": "error", "msg": f"The server didn't answer: {e}"}, b""))
+                continue
+            if r.get("error"):
+                self.inbox.put(({"type": "error", "msg": r["error"]}, b""))
+            self.poke.set()
+
+    def _disconnect(self):
+        if not self.closed:
+            self.closed = True
+            self.inbox.put(({"type": "disconnected"}, b""))
+
+    def _poller(self):
+        failing_since = None
+        while not self.closed:
+            t0 = time.time()
+            try:
+                r = self._request("poll?" + self._auth(), timeout=15)
+                self.offset = r["now"] / 1000 - (t0 + time.time()) / 2
+                failing_since = None
+                self._handle(r)
+            except urllib.error.HTTPError:
+                return self._disconnect()
+            except (OSError, ValueError, KeyError):
+                failing_since = failing_since or t0
+                if t0 - failing_since > 20:
+                    return self._disconnect()
+            self.poke.wait(self.POLL)
+            self.poke.clear()
+
+    def _handle(self, r):
+        room = r.get("room")
+        if not room:
+            self.last_room = None
+            return
+        self.round = room["round"]
+        view = {k: v for k, v in room.items() if k not in ("round", "start_at")}
+        if view != self.last_room:
+            self.last_room = view
+            self.inbox.put((dict(view, type="room"), b""))
+        if self.started_round is None:
+            self.started_round = room["round"]          # don't replay rounds from before we joined
+        elif room["round"] > self.started_round and room["state"] == "playing":
+            self.started_round = room["round"]
+            delay = room["start_at"] / 1000 - (time.time() + self.offset)
+            self.inbox.put(({"type": "start", "delay": delay}, b""))
+        for v in r.get("voices", []):
+            key = (v["from"], v["stamp"])
+            if key in self.seen_voices or v["round"] != room["round"]:
+                continue
+            data = b"".join(self._request("voice?" + self._auth(**{"from": v["from"], "round": v["round"],
+                                                                     "chunk": n}), raw=True)
+                            for n in range(v["chunks"]))
+            self.seen_voices.add(key)
+            self.inbox.put(({"type": "voice", "from": v["from"], "name": v["name"], "char": v["char"],
+                             "segments": v["segments"]}, data))
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            self.outbox.put((None, b""))
+            try:
+                self._post("leave", {}, timeout=5)
+            except (OSError, ValueError):
+                pass
+
+
+def make_client(address, name, songs):
+    return (WebClient if is_web_address(address) else Client)(address, name, songs)
 
 
 if __name__ == "__main__":

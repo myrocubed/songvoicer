@@ -1,0 +1,8 @@
+# Netlify only hosts the Song Voicer room server (netlify/functions/api.mjs); the app itself is Python.
+[build]
+  publish = "netlify/site"
+  command = "echo no build step"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
