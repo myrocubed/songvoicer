@@ -1,7 +1,6 @@
 # Builds Song Voicer for Mac (Apple Silicon + Intel), Windows and Linux on GitHub's machines.
-#  - Actions tab -> "Run workflow": download the builds from the run's Artifacts (GitHub zips each one).
-#  - Publishing a Release: the builds are attached to the release as plain files (Mac gets a .dmg,
-#    nothing to unzip), so friends can download them straight from the Releases page.
+#  Actions tab -> "Run workflow": the builds land on the "latest" release as plain files
+#  (Mac gets a .dmg, nothing to unzip). Publishing your own release attaches them to that one instead.
 name: Build apps
 
 on:
@@ -55,9 +54,15 @@ jobs:
         with:
           name: Song-Voicer-${{ matrix.name }}
           path: Song-Voicer-${{ matrix.name }}.*
-      - name: Attach to the release
-        if: github.event_name == 'release'
+      - name: Attach to a release (published release, or "latest" when run by hand)
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" Song-Voicer-${{ matrix.name }}.* --clobber
+        run: |
+          TAG="${{ github.event.release.tag_name || 'latest' }}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Song Voicer (latest build)" \
+            --notes "Mac: download the .dmg, double-click it, drag Song Voicer into Applications." || true
+          for try in 1 2 3; do
+            gh release upload "$TAG" Song-Voicer-${{ matrix.name }}.* --clobber && break
+            sleep 10
+          done
