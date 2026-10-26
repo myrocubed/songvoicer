@@ -1,11 +1,16 @@
 # Builds Song Voicer for Mac (Apple Silicon + Intel), Windows and Linux on GitHub's machines.
-# Run it from the repo's Actions tab ("Run workflow"); download the zips from the finished run.
+#  - Actions tab -> "Run workflow": download the builds from the run's Artifacts (GitHub zips each one).
+#  - Publishing a Release: the builds are attached to the release as plain files (Mac gets a .dmg,
+#    nothing to unzip), so friends can download them straight from the Releases page.
 name: Build apps
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
+
+permissions:
+  contents: write   # lets the build attach files to a release
 
 jobs:
   build:
@@ -32,9 +37,14 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libportaudio2
       - run: python -m pip install -r requirements.txt pyinstaller
       - run: pyinstaller song_voicer.spec --noconfirm
-      - name: Zip the Mac app
+      - name: Make the Mac disk image
         if: runner.os == 'macOS'
-        run: ditto -c -k --keepParent "dist/Song Voicer.app" "Song-Voicer-${{ matrix.name }}.zip"
+        run: |
+          # A .dmg opens with a double-click; the Applications shortcut makes installing a drag.
+          mkdir dmg
+          cp -R "dist/Song Voicer.app" dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "Song Voicer" -srcfolder dmg -ov -format UDZO "Song-Voicer-${{ matrix.name }}.dmg"
       - name: Zip the Windows app
         if: runner.os == 'Windows'
         run: Compress-Archive -Path "dist/Song Voicer" -DestinationPath "Song-Voicer-${{ matrix.name }}.zip"
@@ -45,3 +55,9 @@ jobs:
         with:
           name: Song-Voicer-${{ matrix.name }}
           path: Song-Voicer-${{ matrix.name }}.*
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" Song-Voicer-${{ matrix.name }}.* --clobber
