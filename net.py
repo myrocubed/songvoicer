@@ -6,6 +6,7 @@ import queue
 import random
 import socket
 import struct
+import ssl
 import threading
 import time
 import urllib.error
@@ -252,6 +253,15 @@ class Client:
 
 # ---------------- website client (netlify/functions/api.mjs) ----------------
 
+try:
+    # Python on macOS (and inside the packaged app) has no system certificate list, so HTTPS fails with
+    # CERTIFICATE_VERIFY_FAILED unless we bring certifi's.
+    import certifi
+    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    SSL_CONTEXT = ssl.create_default_context()
+
+
 def is_web_address(address):
     """https://… or a site name with a path/dot but no :port means the Netlify server, not a TCP host."""
     a = address.strip()
@@ -295,7 +305,7 @@ class WebClient:
                                      method="POST" if body is not None else "GET")
         req.add_header("User-Agent", "SongVoicer")
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with urllib.request.urlopen(req, timeout=timeout, context=SSL_CONTEXT) as r:
                 data = r.read()
         except urllib.error.HTTPError as e:
             if e.code == 410:
