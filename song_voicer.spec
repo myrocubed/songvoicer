@@ -2,6 +2,7 @@
 # Must run on the platform you're building for: on a Mac it makes "dist/Song Voicer.app",
 # on Windows "dist/Song Voicer/Song Voicer.exe", on Linux "dist/Song Voicer/Song Voicer".
 # Python is bundled inside, users don't install it.
+import os
 import subprocess
 import sys
 
@@ -16,7 +17,9 @@ if sys.platform.startswith("linux"):
 a = Analysis(
     ["voicer.py"],
     binaries=binaries,
-    datas=[("maps", "maps")],  # copied to the user's data folder on first run
+    # Songs get copied to the user's data folder on first run. Without a maps folder (e.g. a public repo
+    # that leaves out the copyrighted audio) the app ships empty and players add their own song folders.
+    datas=[("maps", "maps")] if os.path.isdir("maps") else [],
     excludes=["torch", "demucs", "rembg", "faster_whisper", "onnxruntime", "scipy", "matplotlib"],
 )
 pyz = PYZ(a.pure)

@@ -38,7 +38,7 @@ def data_dir():
     bundled = os.path.join(sys._MEIPASS, "maps")
     if not os.path.isdir(os.path.join(path, "maps")) and os.path.isdir(bundled):
         shutil.copytree(bundled, os.path.join(path, "maps"))
-    os.makedirs(path, exist_ok=True)
+    os.makedirs(os.path.join(path, "maps"), exist_ok=True)
     return path
 
 
