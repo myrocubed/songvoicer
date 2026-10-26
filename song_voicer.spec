@@ -19,17 +19,19 @@ a = Analysis(
     binaries=binaries,
     # Songs get copied to the user's data folder on first run. Without a maps folder (e.g. a public repo
     # that leaves out the copyrighted audio) the app ships empty and players add their own song folders.
-    datas=[("maps", "maps")] if os.path.isdir("maps") else [],
+    datas=[("assets/icon.png", "assets")] + ([("maps", "maps")] if os.path.isdir("maps") else []),
     excludes=["torch", "demucs", "rembg", "faster_whisper", "onnxruntime", "scipy", "matplotlib"],
 )
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Song Voicer", console=False)
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Song Voicer", console=False,
+          icon="assets/icon.ico")
 coll = COLLECT(exe, a.binaries, a.datas, name="Song Voicer")
 
 if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="Song Voicer.app",
+        icon="assets/icon.icns",
         bundle_identifier="com.songvoicer.app",
         info_plist={
             # Without this macOS silently blocks the microphone.

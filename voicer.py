@@ -323,6 +323,11 @@ class App(EditorMixin):
         self.root = root
         root.title("Song Voicer")
         root.resizable(False, False)
+        bundle = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        icon = os.path.join(bundle, "assets", "icon.png")
+        if os.path.exists(icon):
+            self.icon = tk.PhotoImage(file=icon)
+            root.iconphoto(True, self.icon)
         self.c = tk.Canvas(root, width=W, height=H, highlightthickness=0, bg="#f4f4f4")
         self.c.pack()
         self.widgets, self.images = [], []
@@ -445,20 +450,9 @@ class App(EditorMixin):
         count = len(self.songs)
         self.text(W - 20, H - 26, f"{count} song{'s' * (count != 1)} installed", 12, "#ddd", anchor="e")
 
-    # The menu waveform, traced from a sketch 570 units wide: (x, height above the line, height below it).
-    MENU_WAVE = [
-        (0, 50, 50), (10, 58, 75), (15, 65, 90), (25, 95, 135), (30, 105, 150), (40, 130, 180), (45, 140, 182),
-        (55, 145, 185), (70, 135, 178), (80, 130, 170), (85, 125, 165), (95, 112, 150), (100, 105, 85),
-        (105, 98, 75), (115, 65, 72), (125, 45, 70), (130, 35, 55), (140, 22, 25), (150, 15, 20), (170, 5, 13),
-        (190, 3, 5), (200, 0, 0), (232, 0, 0),
-        (235, 95, 80), (245, 100, 120), (255, 103, 135), (270, 103, 150), (280, 112, 135), (285, 125, 120),
-        (298, 125, 110), (320, 70, 105), (340, 48, 70), (345, 40, 62), (370, 20, 35), (395, 5, 15), (405, 0, 0),
-        (570, 0, 0),
-    ]
-
     def menu_wave(self, x, y, w, h, bar_w=3.7):
         """The sketched two-blip waveform, drawn as bars like the in-game waveform."""
-        xs, tops, bottoms = (np.array(col, dtype=float) for col in zip(*self.MENU_WAVE))
+        xs, tops, bottoms = (np.array(col, dtype=float) for col in zip(*theme.MENU_WAVE))
         mid, scale = y + h / 2, (h / 2) / 185
         for k in range(int(w / bar_w)):
             sx = (k + 0.5) * bar_w / w * 570

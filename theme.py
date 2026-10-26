@@ -124,6 +124,19 @@ def breadcrumb(canvas, text):
     canvas.create_text(22, 30, anchor="w", text=text, fill="white", font=(FONT, 14))
 
 
+# The menu waveform (also the app icon), traced from a sketch 570 units wide:
+# (x, height above the line, height below it).
+MENU_WAVE = [
+    (0, 50, 50), (10, 58, 75), (15, 65, 90), (25, 95, 135), (30, 105, 150), (40, 130, 180), (45, 140, 182),
+    (55, 145, 185), (70, 135, 178), (80, 130, 170), (85, 125, 165), (95, 112, 150), (100, 105, 85),
+    (105, 98, 75), (115, 65, 72), (125, 45, 70), (130, 35, 55), (140, 22, 25), (150, 15, 20), (170, 5, 13),
+    (190, 3, 5), (200, 0, 0), (232, 0, 0),
+    (235, 95, 80), (245, 100, 120), (255, 103, 135), (270, 103, 150), (280, 112, 135), (285, 125, 120),
+    (298, 125, 110), (320, 70, 105), (340, 48, 70), (345, 40, 62), (370, 20, 35), (395, 5, 15), (405, 0, 0),
+    (570, 0, 0),
+]
+
+
 def brackets(canvas, x0, y0, x1, y1, tag, color="#e22828", size=14, width=3):
     for x, y, dx, dy in ((x0, y0, 1, 1), (x1, y0, -1, 1), (x0, y1, 1, -1), (x1, y1, -1, -1)):
         canvas.create_line(x, y + dy * size, x, y, x + dx * size, y, fill=color, width=width, tags=tag)
