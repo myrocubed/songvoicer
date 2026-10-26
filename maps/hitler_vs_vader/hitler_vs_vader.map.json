@@ -1,0 +1,41 @@
+{
+  "title": "Hitler vs Vader",
+  "artist": "Epic Rap Battles of History (Nice Peter & EpicLLOYD)",
+  "guide": "vocals.mp3",
+  "instrumental": "instrumental.mp3",
+  "length": 100.3,
+  "offset": 0.0,
+  "characters": [
+    {"id": "hitler",    "name": "Adolf Hitler", "color": "#d8c48a", "sprite": "sprites/hitler.png"},
+    {"id": "vader",     "name": "Darth Vader",  "color": "#ff4d4d", "sprite": "sprites/vader.png"},
+    {"id": "announcer", "name": "Announcer",    "color": "#5abed4"}
+  ],
+  "lines": [
+    {"t": 1.40,  "end": 9.90,  "char": "announcer", "text": "Epic Rap Battles of History! Darth Vader vs. Adolf Hitler! Begin!"},
+    {"t": 10.30, "end": 14.10, "char": "hitler", "text": ""},
+    {"t": 14.20, "end": 16.74, "char": "hitler", "text": ""},
+    {"t": 16.84, "end": 19.62, "char": "hitler", "text": ""},
+    {"t": 19.72, "end": 22.24, "char": "hitler", "text": ""},
+    {"t": 22.34, "end": 25.24, "char": "hitler", "text": ""},
+    {"t": 25.34, "end": 27.94, "char": "hitler", "text": ""},
+    {"t": 28.04, "end": 30.88, "char": "hitler", "text": ""},
+    {"t": 30.98, "end": 33.70, "char": "hitler", "text": ""},
+    {"t": 33.88, "end": 36.58, "char": "vader",  "text": ""},
+    {"t": 36.68, "end": 39.46, "char": "vader",  "text": ""},
+    {"t": 39.56, "end": 42.00, "char": "vader",  "text": ""},
+    {"t": 42.10, "end": 45.14, "char": "vader",  "text": ""},
+    {"t": 45.24, "end": 47.26, "char": "vader",  "text": ""},
+    {"t": 47.36, "end": 49.92, "char": "vader",  "text": ""},
+    {"t": 50.02, "end": 52.92, "char": "vader",  "text": ""},
+    {"t": 53.02, "end": 56.25, "char": "vader",  "text": ""},
+    {"t": 56.40, "end": 59.26, "char": "hitler", "text": ""},
+    {"t": 59.36, "end": 61.88, "char": "hitler", "text": ""},
+    {"t": 61.98, "end": 64.72, "char": "hitler", "text": ""},
+    {"t": 64.82, "end": 67.70, "char": "hitler", "text": ""},
+    {"t": 67.90, "end": 70.62, "char": "vader",  "text": ""},
+    {"t": 70.72, "end": 73.10, "char": "vader",  "text": ""},
+    {"t": 73.20, "end": 75.90, "char": "vader",  "text": ""},
+    {"t": 76.00, "end": 79.20, "char": "vader",  "text": ""},
+    {"t": 79.40, "end": 82.70, "char": "announcer", "text": "Who won? Who's next? You decide!"}
+  ]
+}

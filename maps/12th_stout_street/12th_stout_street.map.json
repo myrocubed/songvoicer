@@ -1,0 +1,107 @@
+{
+  "title": "12th Stout Street",
+  "artist": "RX papi",
+  "guide": "vocals.mp3",
+  "instrumental": "instrumental.mp3",
+  "characters": [
+    {
+      "id": "singer_1",
+      "name": "Rx Papi",
+      "color": "#3fbf6f",
+      "sprite": "sprites/singer_1.png"
+    }
+  ],
+  "lines": [
+    {
+      "t": 3.03,
+      "end": 4.7,
+      "char": "singer_1",
+      "text": "Yeah"
+    },
+    {
+      "t": 8.43,
+      "end": 9.73,
+      "char": "singer_1",
+      "text": "Yeah"
+    },
+    {
+      "t": 12.6,
+      "end": 14.06,
+      "char": "singer_1",
+      "text": "Real Rx"
+    },
+    {
+      "t": 14.11,
+      "end": 16.21,
+      "char": "singer_1",
+      "text": "I used to wake up in my room in the mornin'"
+    },
+    {
+      "t": 16.23,
+      "end": 18.28,
+      "char": "singer_1",
+      "text": "Put on my dirty shoes in the mornin'"
+    },
+    {
+      "t": 18.29,
+      "end": 19.98,
+      "char": "singer_1",
+      "text": "Heard mama cryin' last night"
+    },
+    {
+      "t": 19.96,
+      "end": 21.78,
+      "char": "singer_1",
+      "text": "Think the lights finna go out "
+    },
+    {
+      "t": 21.81,
+      "end": 23.6,
+      "char": "singer_1",
+      "text": "Only thing on my mind is hittin' a lick"
+    },
+    {
+      "t": 23.58,
+      "end": 25.25,
+      "char": "singer_1",
+      "text": "Her nigga in prison for doin' some shit"
+    },
+    {
+      "t": 25.25,
+      "end": 27.03,
+      "char": "singer_1",
+      "text": "Say I'ma go to prison for doin' some shit"
+    },
+    {
+      "t": 26.98,
+      "end": 29.1,
+      "char": "singer_1",
+      "text": "Only thing on my mind is boomin' a bitch"
+    },
+    {
+      "t": 29.1,
+      "end": 30.7,
+      "char": "singer_1",
+      "text": "12 Stout Street, I hated that house"
+    },
+    {
+      "t": 30.71,
+      "end": 32.46,
+      "char": "singer_1",
+      "text": "I had to learn early on bein' a man about"
+    },
+    {
+      "t": 32.53,
+      "end": 34.33,
+      "char": "singer_1",
+      "text": "My mama ain't never buy me shit"
+    },
+    {
+      "t": 34.33,
+      "end": 36.2,
+      "char": "singer_1",
+      "text": "I sold drugs and robbed for all my shit"
+    }
+  ],
+  "length": 120.05
+}
